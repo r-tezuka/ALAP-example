@@ -10,7 +10,7 @@ def get_ls(xs, ys):
                      for i in range(len(xs))])
 
 
-def get_ns(xs, ys):
+def get_normals(xs, ys):
     ls = get_ls(xs, ys)
     nxs = np.array([(ys[i] - ys[i-1]) / ls[i]
                    for i in range(len(xs))])
@@ -48,38 +48,53 @@ l_sampling = max([max_x - min_x, max_y - min_y]) * 0.005
 ns = [[int(l / l_sampling) + 1 for l in path_ls] for path_ls in ls]
 
 # resampling
-path_ns = []
+path_ids = []
 xs, ys = [], []
-corner_ids = []
 for i, path in enumerate(paths):
     path_xs, path_ys = [], []
-    edge_ids = []
+    last_x, last_y = None, None
+    path_id = 0
+    path_n = 0
+    if len(path_ids) > 0:
+        path_id = path_ids[-1] + 1
     for j, seg in enumerate(path):
         n_sampling = int(ls[i][j] / l_sampling) + 1
         tvals = np.linspace(0, 1, n_sampling)
         seg_ps = seg.poly()(tvals)
         seg_xs = [p.real for p in seg_ps]
         seg_ys = [-p.imag for p in seg_ps]
-        edge_ids.append(len(path_xs))
-        last = len(seg_xs) - 1
-        path_xs += seg_xs[:last]
-        path_ys += seg_ys[:last]
+        if last_x == seg_xs[0] and last_y == seg_ys[0]:
+            path_xs.pop()
+            path_ys.pop()
+        elif last_x is not None and last_y is not None:
+            path_ids += [path_id for _ in range(len(path_xs))]
+            xs += path_xs
+            ys += path_ys
+            path_id += 1
+            path_xs, path_ys = [], []
+        path_xs += seg_xs
+        path_ys += seg_ys
+        last_x = seg_xs[-1]
+        last_y = seg_ys[-1]
+    xs += path_xs
+    ys += path_ys
+    path_ids += [path_id for _ in range(len(path_xs))]
 
-    # corner detection
-    n = len(path_xs)
+# corner detection
+corner_ids = []
+path_n = path_ids[-1] + 1
+for path_id in range(path_n):
+    edge_ids = [i for i, id in enumerate(path_ids) if id == path_id]
+    n = edge_ids[-1] + 1
     for current in edge_ids:
         j = current - 1
         k = (current + 1) % n
-        u = np.array([path_xs[current] - path_xs[j],
-                     path_ys[current] - path_ys[j]])
-        v = np.array([path_xs[k] - path_xs[current],
-                     path_ys[k] - path_ys[current]])
+        u = np.array([xs[current] - xs[j], ys[current] - ys[j]])
+        v = np.array([xs[k] - xs[current], ys[k] - ys[current]])
         rad = get_rad(u, v)
-        if rad > np.pi * 45 / 180:
-            corner_ids.append(current + len(xs))
-    path_ns.append(len(path_xs))
-    xs += path_xs
-    ys += path_ys
+        if rad > np.pi * 55 / 180:
+            corner_ids.append(current)
+
 
 xs_0 = np.array(xs)
 ys_0 = np.array(ys)
@@ -89,7 +104,7 @@ handles = corner_ids
 
 def opt_v(xs, ys, ls, xs_0, ys_0, ls_0, xs_h, ys_h):
     l_avg = sum(ls) / len(ls)
-    nxs, nys = get_ns(xs_0, ys_0)
+    nxs, nys = get_normals(xs_0, ys_0)
 
     a_normal = np.array([np.zeros(2 * n) for _ in range(n)])
     b_normal = np.zeros(n)
@@ -198,7 +213,7 @@ xs, ys = xs_0, ys_0
 ls = ls_0
 
 
-for _ in range(5):
+for _ in range(1):
     xs, ys = opt_v(xs, ys, ls, xs_0, ys_0, ls_0, xs_h, ys_h)
     ls = opt_l(xs, ys)
     im3 = ax3.scatter(xs, ys, c='k')

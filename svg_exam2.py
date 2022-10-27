@@ -30,85 +30,70 @@ def get_rad(u, v):
 paths, attributes = svg.svg2paths('./icon.svg')
 min_x, max_x = float('inf'), -float('inf')
 min_y, max_y = float('inf'), -float('inf')
-ls = [[] for _ in range(len(paths))]
+segs, ls = [], []
 for i, path in enumerate(paths):
+    path_segs, path_ls = [], []
     tvals = np.linspace(0, 1, 10)
-    path_ps = [seg.poly()(tvals) for seg in path]
-    for seg_ps in path_ps:
+    last_x, last_y = None, None
+    for j, seg in enumerate(path):
+        seg_ps = seg.poly()(tvals)
         xs = [p.real for p in seg_ps]
         ys = [-p.imag for p in seg_ps]
-        l = sum([np.sqrt((xs[i] - xs[i-1]) ** 2 + (ys[i] - ys[i-1]) ** 2)
-                for i in range(len(seg_ps)) if i != 0])
-        ls[i].append(l)
         min_x = min([min_x, min(xs)])
         max_x = max([max_x, max(xs)])
         min_y = min([min_y, min(ys)])
         max_y = max([max_y, max(ys)])
+        if j > 0 and abs(last_x - xs[0]) > 1 and abs(last_y - ys[0]) > 1:
+            segs.append(path_segs)
+            ls.append(path_ls)
+            path_segs, path_ls = [], []
+        path_segs.append(seg)
+        seg_l = sum([np.sqrt((xs[i] - xs[i-1]) ** 2 + (ys[i] - ys[i-1]) ** 2)
+                     for i in range(len(seg_ps)) if i != 0])
+        path_ls.append(seg_l)
+        last_x, last_y = xs[-1], ys[-1]
+    segs.append(path_segs)
+    ls.append(path_ls)
 l_sampling = max([max_x - min_x, max_y - min_y]) * 0.005
-ns = [[int(l / l_sampling) + 1 for l in path_ls] for path_ls in ls]
 
 # resampling
 path_ids = []
 xs, ys = [], []
-for i, path in enumerate(paths):
+for i, path_segs in enumerate(segs):
     path_xs, path_ys = [], []
-    last_x, last_y = None, None
-    path_id = 0
-    path_n = 0
-    if len(path_ids) > 0:
-        path_id = path_ids[-1] + 1
-    for j, seg in enumerate(path):
+    for j, seg in enumerate(path_segs):
         n_sampling = int(ls[i][j] / l_sampling) + 1
         tvals = np.linspace(0, 1, n_sampling)
         seg_ps = seg.poly()(tvals)
         seg_xs = [p.real for p in seg_ps]
         seg_ys = [-p.imag for p in seg_ps]
-        if last_x is not None and last_y is not None and abs(last_x - seg_xs[0]) < 1 and abs(last_y - seg_ys[0]) < 1:
-            path_xs.pop()
-            path_ys.pop()
-        elif last_x is not None and last_y is not None:
-            path_ids += [path_id for _ in range(len(path_xs))]
-            xs += path_xs
-            ys += path_ys
-            path_id += 1
-            path_xs, path_ys = [], []
+        if j > 0:
+            seg_xs = seg_xs[1:]
+            seg_ys = seg_ys[1:]
         path_xs += seg_xs
         path_ys += seg_ys
-        last_x = seg_xs[-1]
-        last_y = seg_ys[-1]
-    xs += path_xs
-    ys += path_ys
-    path_ids += [path_id for _ in range(len(path_xs))]
-
+    xs.append(path_xs)
+    ys.append(path_ys)
 
 fig = plt.figure()
 ax1 = fig.add_subplot(111)
 
 # corner detection
-corner_ids = []
-path_n = path_ids[-1] + 1
-for path_id in range(path_n):
-    edge_ids = [i for i, id in enumerate(path_ids) if id == path_id]
-    for i, current in enumerate(edge_ids):
-        j = edge_ids[i - 1]
-        k = edge_ids[(i + 1) % len(edge_ids)]
-        u = np.array([xs[current] - xs[j], ys[current] - ys[j]])
-        v = np.array([xs[k] - xs[current], ys[k] - ys[current]])
+cids = []
+for path_id in range(len(xs)):
+    path_xs, path_ys = xs[path_id], ys[path_id]
+    path_cids = []
+    for i in range(len(xs[path_id])):
+        j = i - 1
+        k = (i + 1) % len(xs[path_id])
+        u = np.array([path_xs[i] - path_xs[j], path_ys[i] - path_ys[j]])
+        v = np.array([path_xs[k] - path_xs[i], path_ys[k] - path_ys[i]])
         rad = get_rad(u, v)
         if rad > np.pi * 45 / 180:
-            corner_ids.append(current)
-    plt_xs = [xs[i] for i in edge_ids]
-    plt_ys = [ys[i] for i in edge_ids]
-    ax1.scatter(plt_xs, plt_ys)
-
-
-xs_0 = np.array(xs)
-ys_0 = np.array(ys)
-ls_0 = get_ls(xs_0, ys_0)
-handles = corner_ids
-plt_xs_h = [x for i, x in enumerate(xs) if i in handles]
-plt_ys_h = [y for i, y in enumerate(ys) if i in handles]
-
-# ax1.scatter(xs_0, ys_0, c='k')
-ax1.scatter(plt_xs_h, plt_ys_h, c='r')
+            path_cids.append(i)
+    cids.append(path_cids)
+    ax1.scatter(path_xs, path_ys)
+    plt_xs_h = [x for i, x in enumerate(path_xs) if i in path_cids]
+    plt_ys_h = [y for i, y in enumerate(path_ys) if i in path_cids]
+    ax1.scatter(plt_xs_h, plt_ys_h, c='r')
 plt.show()

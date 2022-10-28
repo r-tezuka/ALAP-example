@@ -1,8 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import svgpathtools as svg
 import random
+
+
+def rand_ints_nodup(a, b, k):
+    ns = []
+    while len(ns) < k:
+        n = random.randint(a, b)
+        if not n in ns:
+            ns.append(n)
+    return ns
+
+
+n = 16
+r = 1
+handles = rand_ints_nodup(0, n-1, 4)
+print(handles)
 
 
 def get_ls(xs, ys):
@@ -10,7 +24,7 @@ def get_ls(xs, ys):
                      for i in range(len(xs))])
 
 
-def get_normals(xs, ys):
+def get_ns(xs, ys):
     ls = get_ls(xs, ys)
     nxs = np.array([(ys[i] - ys[i-1]) / ls[i]
                    for i in range(len(xs))])
@@ -26,85 +40,9 @@ def get_rad(u, v):
     return np.arccos(np.clip(c, -1.0, 1.0))
 
 
-# init
-paths, attributes = svg.svg2paths('./icon.svg')
-min_x, max_x = float('inf'), -float('inf')
-min_y, max_y = float('inf'), -float('inf')
-ls = [[] for _ in range(len(paths))]
-for i, path in enumerate(paths):
-    tvals = np.linspace(0, 1, 10)
-    path_ps = [seg.poly()(tvals) for seg in path]
-    for seg_ps in path_ps:
-        xs = [p.real for p in seg_ps]
-        ys = [-p.imag for p in seg_ps]
-        l = sum([np.sqrt((xs[i] - xs[i-1]) ** 2 + (ys[i] - ys[i-1]) ** 2)
-                for i in range(len(seg_ps)) if i != 0])
-        ls[i].append(l)
-        min_x = min([min_x, min(xs)])
-        max_x = max([max_x, max(xs)])
-        min_y = min([min_y, min(ys)])
-        max_y = max([max_y, max(ys)])
-l_sampling = max([max_x - min_x, max_y - min_y]) * 0.005
-ns = [[int(l / l_sampling) + 1 for l in path_ls] for path_ls in ls]
-
-# resampling
-path_ids = []
-xs, ys = [], []
-for i, path in enumerate(paths):
-    path_xs, path_ys = [], []
-    last_x, last_y = None, None
-    path_id = 0
-    path_n = 0
-    if len(path_ids) > 0:
-        path_id = path_ids[-1] + 1
-    for j, seg in enumerate(path):
-        n_sampling = int(ls[i][j] / l_sampling) + 1
-        tvals = np.linspace(0, 1, n_sampling)
-        seg_ps = seg.poly()(tvals)
-        seg_xs = [p.real for p in seg_ps]
-        seg_ys = [-p.imag for p in seg_ps]
-        if last_x == seg_xs[0] and last_y == seg_ys[0]:
-            path_xs.pop()
-            path_ys.pop()
-        elif last_x is not None and last_y is not None:
-            path_ids += [path_id for _ in range(len(path_xs))]
-            xs += path_xs
-            ys += path_ys
-            path_id += 1
-            path_xs, path_ys = [], []
-        path_xs += seg_xs
-        path_ys += seg_ys
-        last_x = seg_xs[-1]
-        last_y = seg_ys[-1]
-    xs += path_xs
-    ys += path_ys
-    path_ids += [path_id for _ in range(len(path_xs))]
-
-# corner detection
-corner_ids = []
-path_n = path_ids[-1] + 1
-for path_id in range(path_n):
-    edge_ids = [i for i, id in enumerate(path_ids) if id == path_id]
-    n = edge_ids[-1] + 1
-    for current in edge_ids:
-        j = current - 1
-        k = (current + 1) % n
-        u = np.array([xs[current] - xs[j], ys[current] - ys[j]])
-        v = np.array([xs[k] - xs[current], ys[k] - ys[current]])
-        rad = get_rad(u, v)
-        if rad > np.pi * 55 / 180:
-            corner_ids.append(current)
-
-
-xs_0 = np.array(xs)
-ys_0 = np.array(ys)
-ls_0 = get_ls(xs_0, ys_0)
-handles = corner_ids
-
-
 def opt_v(xs, ys, ls, xs_0, ys_0, ls_0, xs_h, ys_h):
     l_avg = sum(ls) / len(ls)
-    nxs, nys = get_normals(xs_0, ys_0)
+    nxs, nys = get_ns(xs_0, ys_0)
 
     a_normal = np.array([np.zeros(2 * n) for _ in range(n)])
     b_normal = np.zeros(n)
@@ -183,6 +121,10 @@ def opt_l(xs, ys):
     return X_l
 
 
+xs_0 = np.array([r * np.cos(2 * np.pi * x / n) for x in range(n)])
+ys_0 = np.array([r * np.sin(2 * np.pi * x / n) for x in range(n)])
+ls_0 = get_ls(xs_0, ys_0)
+
 ims = []
 fig = plt.figure()
 ax1 = fig.add_subplot(1, 3, 1)
@@ -191,19 +133,22 @@ ax3 = fig.add_subplot(1, 3, 3)
 ax1.set_title('initialize')
 ax2.set_title('set handle position')
 ax3.set_title('optimize')
-im1 = ax1.scatter(xs_0, ys_0, c='k')
+plt_xs = np.append(xs_0, xs_0[0])
+plt_ys = np.append(ys_0, ys_0[0])
+im1 = ax1.plot(plt_xs, plt_ys, c='k')
 plt_xs_h = [x for i, x in enumerate(xs_0) if i in handles]
 plt_ys_h = [y for i, y in enumerate(ys_0) if i in handles]
 ax1.scatter(plt_xs_h, plt_ys_h, c='r')
 ax1.axis('square')
 
-n = len(xs)
-xs_h = [50 + xs_0[i]
-        if i in [handles[4], handles[5]] else xs_0[i] for i in range(n)]
-ys_h = [50 + ys_0[i]
-        if i in [handles[4], handles[5]] else ys_0[i] for i in range(n)]
+xs_h = [random.uniform(0, 2) * r * np.cos(2 * np.pi * i / n)
+        if i in handles else xs_0[i] for i in range(n)]
+ys_h = [random.uniform(0, 2) * r * np.sin(2 * np.pi * i / n)
+        if i in handles else ys_0[i] for i in range(n)]
 
-im2 = ax2.scatter(xs_h, ys_h, c='k')
+plt_xs = np.append(xs_h, xs_h[0])
+plt_ys = np.append(ys_h, ys_h[0])
+im2 = ax2.plot(plt_xs, plt_ys, c='k')
 plt_xs_h = [x for i, x in enumerate(xs_h) if i in handles]
 plt_ys_h = [y for i, y in enumerate(ys_h) if i in handles]
 ax2.scatter(plt_xs_h, plt_ys_h, c='r')
@@ -213,15 +158,16 @@ xs, ys = xs_0, ys_0
 ls = ls_0
 
 
-for _ in range(1):
+for _ in range(20):
     xs, ys = opt_v(xs, ys, ls, xs_0, ys_0, ls_0, xs_h, ys_h)
     ls = opt_l(xs, ys)
-    im3 = ax3.scatter(xs, ys, c='k')
+    plt_xs = np.append(xs, xs[0])
+    plt_ys = np.append(ys, ys[0])
+    im3 = ax3.plot(plt_xs, plt_ys, c='k')
     plt_xs_h = [x for i, x in enumerate(xs) if i in handles]
     plt_ys_h = [y for i, y in enumerate(ys) if i in handles]
     ax3.scatter(plt_xs_h, plt_ys_h, c='r')
     ax3.axis('square')
-    ims.append([im1]+[im2]+[im3])
-    # ims.append(im1+im2+im3)
+    ims.append(im1+im2+im3)
 ani = animation.ArtistAnimation(fig, ims, interval=100)
 plt.show()

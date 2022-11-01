@@ -1,9 +1,46 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import svgpathtools as svg
 import cProfile
 import pstats
+import tkinter
+from tkinter import ttk
+
+def click(event):
+    global figure
+    global before_x, before_y
+
+    x = event.x
+    y = event.y
+
+    figure = canvas.find_closest(x, y)
+
+    before_x = x
+    before_y = y
+
+def drag(event):
+    global before_x, before_y
+
+    x = event.x
+    y = event.y
+
+    canvas.move(
+        figure,
+        x - before_x, y - before_y
+    )
+
+    before_x = x
+    before_y = y
+
+def draw(xs, ys, handles):
+    r = 3
+    _ = [canvas.create_oval(xs[i] - r, ys[i] - r, xs[i] + r, ys[i] + r, fill = 'black', outline='') for i in range(len(xs))]
+    r = 6
+    for i in handles:
+        p = canvas.create_oval(xs[i] - r, ys[i] - r, xs[i] + r, ys[i] + r, fill = 'red', outline='', tag='handle')
+        canvas.tag_bind(p, "<ButtonPress-1>", click)
+        canvas.tag_bind(p, "<Button1-Motion>", drag)
+
+
 
 def get_ls(xs, ys, path_starts):
     ls = []
@@ -144,7 +181,7 @@ def main():
         for j, seg in enumerate(path):
             seg_ps = seg.poly()(tvals)
             xs = [p.real for p in seg_ps]
-            ys = [-p.imag for p in seg_ps]
+            ys = [p.imag for p in seg_ps]
             min_x = min([min_x, min(xs)])
             max_x = max([max_x, max(xs)])
             min_y = min([min_y, min(ys)])
@@ -163,7 +200,6 @@ def main():
     l_sampling = max([max_x - min_x, max_y - min_y]) * 0.005
 
     # resampling
-    path_ids = []
     xs, ys = [], []
     for i, path_segs in enumerate(segs):
         path_xs, path_ys = [], []
@@ -172,7 +208,7 @@ def main():
             tvals = np.linspace(0, 1, n_sampling)
             seg_ps = seg.poly()(tvals)
             seg_xs = [p.real for p in seg_ps][1:]
-            seg_ys = [-p.imag for p in seg_ps][1:]
+            seg_ys = [p.imag for p in seg_ps][1:]
             path_xs += seg_xs
             path_ys += seg_ys
         xs.append(path_xs)
@@ -208,55 +244,48 @@ def main():
         for id in ids:
             handles.append(id + path_starts[i])
 
-    ims = []
-    fig = plt.figure()
-    ax1 = fig.add_subplot(1, 3, 1)
-    ax2 = fig.add_subplot(1, 3, 2)
-    ax3 = fig.add_subplot(1, 3, 3)
-    ax1.set_title('initialize')
-    ax2.set_title('set handle position')
-    ax3.set_title('optimize')
-    im1 = ax1.scatter(xs_0, ys_0, c='k')
-    plt_xs_h = [x for i, x in enumerate(xs_0) if i in handles]
-    plt_ys_h = [y for i, y in enumerate(ys_0) if i in handles]
-    ax1.scatter(plt_xs_h, plt_ys_h, c='r')
-    ax1.axis('square')
-
     n = len(xs_0)
-    xs_h = [50 + xs_0[i]
-            if i in [handles[3], handles[4]] else xs_0[i] for i in range(n)]
-    ys_h = [50 + ys_0[i]
-            if i in [handles[3], handles[4]] else ys_0[i] for i in range(n)]
-
-    im2 = ax2.scatter(xs_h, ys_h, c='k')
-    plt_xs_h = [x for i, x in enumerate(xs_h) if i in handles]
-    plt_ys_h = [y for i, y in enumerate(ys_h) if i in handles]
-    ax2.scatter(plt_xs_h, plt_ys_h, c='r')
-    ax2.axis('square')
-
     ls = ls_0
+    
+    def update(ls, xs_0, ys_0, ls_0, handles, path_starts):
+        ids = canvas.find_withtag('handle')
+        xs_h = [(canvas.coords(i)[0] + canvas.coords(i)[2]) / 2 for i in ids]
+        ys_h = [(canvas.coords(i)[1] + canvas.coords(i)[3]) / 2 for i in ids]
 
-    wc = 100000
-    a_handles = np.array([[wc if (i in handles or i-n in handles) and i ==
-                      j else 0 for i in range(2 * n)] for j in range(2 * n)])
+        wc = 100000
+        a_handles = np.array([[wc if (i in handles or i-n in handles) and i ==
+                          j else 0 for i in range(2 * n)] for j in range(2 * n)])
 
-    b_handles = np.zeros(2 * n)
-    for i in range(n):
-        if i in handles:
-            b_handles[i] = wc * xs_h[i]
-            b_handles[n+i] = wc * ys_h[i]
+        b_handles = np.zeros(2 * n)
+        for i, id in enumerate(handles):
+            b_handles[id] = wc * xs_h[i]
+            b_handles[n+id] = wc * ys_h[i]
+        for _ in range(10):
+            xs, ys = opt_v(ls, xs_0, ys_0, ls_0, a_handles, b_handles, path_starts)
+            ls = opt_l(xs, ys, path_starts)
+        canvas.delete('all')
+        draw(xs, ys, handles)
 
-    for _ in range(10):
-        xs, ys = opt_v(ls, xs_0, ys_0, ls_0, a_handles, b_handles, path_starts)
-        ls = opt_l(xs, ys, path_starts)
-        im3 = ax3.scatter(xs, ys, c='k')
-        plt_xs_h = [x for i, x in enumerate(xs) if i in handles]
-        plt_ys_h = [y for i, y in enumerate(ys) if i in handles]
-        ax3.scatter(plt_xs_h, plt_ys_h, c='r')
-        ax3.axis('square')
-        ims.append([im1]+[im2]+[im3])
-    animation.ArtistAnimation(fig, ims, interval=100)
-    # plt.show()
+
+    # init canvas
+    global canvas
+    root = tkinter.Tk()
+    canvas = tkinter.Canvas(
+        root,
+        width=600, height=600,
+        highlightthickness=0,
+        bg="white"
+    )
+    canvas.grid(row=0, column=0)
+    draw(xs_0, ys_0, handles)
+
+    # init button
+    button1 = ttk.Button(
+        root,
+        text='UPDATE',
+        command=lambda:update(ls, xs_0, ys_0, ls_0, handles, path_starts))
+    button1.grid(row=1, column=0)
+    root.mainloop()
 
 if __name__ == '__main__':
     cProfile.run('main()', filename='./main.prof')

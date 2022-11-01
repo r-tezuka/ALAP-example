@@ -1,10 +1,12 @@
 import tkinter as tk
+import svgpathtools as svg
+import numpy as np
 CANVAS_WIDTH = 1000
 CANVAS_HEIGHT = 700
 
 
 class App(tk.Tk):
-    def __init__(self, svg):
+    def __init__(self):
         super().__init__()
         self.title("ALAP example")
         self.geometry("1200x800")
@@ -19,6 +21,16 @@ class App(tk.Tk):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
         self.is_dragged = False
+    
+    def draw(self, xs, ys, handles):
+        r = 3
+        
+        for i in range(len(xs)):
+            color = 'black'
+            if i in handles:
+                color = 'red'
+            self.canvas.create_oval(xs[i] - r, ys[i] - r, xs[i] + r, ys[i] + r, fill = color, outline='')
+
 
     def move(self, event):
         x = self.canvas.canvasx(event.x)

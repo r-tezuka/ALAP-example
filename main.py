@@ -71,7 +71,7 @@ def get_rad(u, v):
     return np.arccos(np.clip(c, -1.0, 1.0))
 
 
-def opt_v(ls, vs_0, ls_0, a_handles, b_handles, path_starts):
+def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
     l_avg = sum(ls) / len(ls)
     normals = get_normals(vs_0, path_starts)
     n = len(ls)
@@ -103,10 +103,8 @@ def opt_v(ls, vs_0, ls_0, a_handles, b_handles, path_starts):
         a_edge[n + i][n + j] = -c / ls[i]
         b_edge[n + i] = c / ls_0[i] * (vs_0[i][1] - vs_0[j][1])
 
-    A_v = np.concatenate([a_normal, a_edge, a_handles])
-    b_v = np.concatenate([b_normal, b_edge, b_handles])
-    A_v = np.concatenate([a_normal, a_edge, a_handles])
-    b_v = np.concatenate([b_normal, b_edge, b_handles])
+    A_v = np.concatenate([a_normal, a_edge, a_handles, a_comp])
+    b_v = np.concatenate([b_normal, b_edge, b_handles, b_comp])
     inv = np.linalg.pinv(np.dot(A_v.T, A_v))
     Atb = np.dot(A_v.T, b_v)
     X_v = np.dot(inv, Atb)
@@ -230,7 +228,36 @@ def main():
     n = len(vs_0)
     ls = ls_0
     
-    def update(ls, vs_0, ls_0, handles, path_starts):
+    # set E comp
+    tri = Delaunay(vs_0)
+    d_edges = []
+    for tri in tri.simplices:
+        for i, start in enumerate(tri):
+            end = tri[i - 1]
+            if [start, end] not in d_edges and [end, start] not in d_edges:
+                d_edges.append([start, end])
+    # for de in d_edges:
+    #     sv = vs_0[de[0]]
+    #     ev = vs_0[de[1]]
+    #     canvas.create_line(sv[0], sv[1], ev[0], ev[1])
+    w_comp = np.sqrt(0.01 / len(d_edges))
+    a_comp = np.array([np.zeros(2 * n) for _ in range(2 * len(d_edges))])
+    b_comp = np.zeros(2 * len(d_edges))
+    for i, de in enumerate(d_edges):
+        l = np.linalg.norm(vs_0[de[0]] - vs_0[de[1]])
+        a_comp[i][de[0]] = w_comp / l
+        a_comp[i][de[0] + n] = w_comp / l
+        a_comp[i][de[1]] = -w_comp / l
+        a_comp[i][de[1] + n] = -w_comp / l
+
+        b_comp[i] = w_comp * (vs_0[de[0]][0] - vs_0[de[1]][0]) / l
+        b_comp[i + n] = w_comp * (vs_0[de[0]][1] - vs_0[de[1]][1]) / l
+
+
+
+
+    
+    def update(ls, vs_0, ls_0, handles, a_comp, b_comp, path_starts):
         ids = canvas.find_withtag('handle')
         vs_h = [[(canvas.coords(i)[0] + canvas.coords(i)[2]) / 2, (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2 ] for i in ids]
         wc = np.sqrt(100000)
@@ -241,7 +268,7 @@ def main():
             b_handles[id] = wc * vs_h[i][0]
             b_handles[n+id] = wc * vs_h[i][1]
         for _ in range(5):
-            vs = opt_v(ls, vs_0, ls_0, a_handles, b_handles, path_starts)
+            vs = opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts)
             ls = opt_l(vs, path_starts)
         canvas.delete('all')
         draw(vs, handles)
@@ -258,16 +285,12 @@ def main():
     )
     canvas.grid(row=0, column=0)
     draw(vs_0, handles)
-    # pts = np.concatenate([xs_0, ys_0], 1)
-    # tri = Delaunay(pts)
-    # fig = delaunay_plot_2d(tri)
-
 
     # init button
     button1 = ttk.Button(
         root,
         text='UPDATE',
-        command=lambda:update(ls, vs_0, ls_0, handles, path_starts))
+        command=lambda:update(ls, vs_0, ls_0, handles, a_comp, b_comp, path_starts))
     button1.grid(row=1, column=0)
     root.mainloop()
 

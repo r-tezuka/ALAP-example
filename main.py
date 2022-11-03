@@ -4,7 +4,7 @@ import cProfile
 import pstats
 import tkinter
 from tkinter import ttk
-from scipy.spatial import Delaunay, delaunay_plot_2d
+from scipy.spatial import Delaunay
 
 def click(event):
     global figure
@@ -236,26 +236,20 @@ def main():
             end = tri[i - 1]
             if [start, end] not in d_edges and [end, start] not in d_edges:
                 d_edges.append([start, end])
-    # for de in d_edges:
-    #     sv = vs_0[de[0]]
-    #     ev = vs_0[de[1]]
-    #     canvas.create_line(sv[0], sv[1], ev[0], ev[1])
-    w_comp = np.sqrt(0.01 / len(d_edges))
-    a_comp = np.array([np.zeros(2 * n) for _ in range(2 * len(d_edges))])
-    b_comp = np.zeros(2 * len(d_edges))
+    n_comp = len(d_edges)
+    w_comp = np.sqrt(0.01 / n_comp)
+    a_comp = np.array([np.zeros(2 * n) for _ in range(2 * n_comp)])
+    b_comp = np.zeros(2 * n_comp)
+    
     for i, de in enumerate(d_edges):
         l = np.linalg.norm(vs_0[de[0]] - vs_0[de[1]])
         a_comp[i][de[0]] = w_comp / l
-        a_comp[i][de[0] + n] = w_comp / l
+        a_comp[i + n_comp][de[0] + n] = w_comp / l
         a_comp[i][de[1]] = -w_comp / l
-        a_comp[i][de[1] + n] = -w_comp / l
+        a_comp[i + n_comp][de[1] + n] = -w_comp / l
 
         b_comp[i] = w_comp * (vs_0[de[0]][0] - vs_0[de[1]][0]) / l
-        b_comp[i + n] = w_comp * (vs_0[de[0]][1] - vs_0[de[1]][1]) / l
-
-
-
-
+        b_comp[i + n_comp] = w_comp * (vs_0[de[0]][1] - vs_0[de[1]][1]) / l
     
     def update(ls, vs_0, ls_0, handles, a_comp, b_comp, path_starts):
         ids = canvas.find_withtag('handle')
@@ -285,6 +279,12 @@ def main():
     )
     canvas.grid(row=0, column=0)
     draw(vs_0, handles)
+
+    # draw Delaunay edges
+    # for de in d_edges:
+    #     sv = vs_0[de[0]]
+    #     ev = vs_0[de[1]]
+    #     canvas.create_line(sv[0], sv[1], ev[0], ev[1])
 
     # init button
     button1 = ttk.Button(

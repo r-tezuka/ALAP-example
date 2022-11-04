@@ -6,6 +6,28 @@ import tkinter
 from tkinter import ttk
 from scipy.spatial import Delaunay
 
+def max_min_cross(p1, p2, p3, p4):
+    min_ab, max_ab = min(p1, p2), max(p1, p2)
+    min_cd, max_cd = min(p3, p4), max(p3, p4)
+    if min_ab > max_cd or max_ab < min_cd:
+        return False
+    return True
+
+def is_cross(a, b, c, d):
+    # x座標による判定
+    if not max_min_cross(a[0], b[0], c[0], d[0]):
+        return False
+
+    # y座標による判定
+    if not max_min_cross(a[1], b[1], c[1], d[1]):
+        return False
+
+    tc1 = (a[0] - b[0]) * (c[1] - a[1]) + (a[1] - b[1]) * (a[0] - c[0])
+    tc2 = (a[0] - b[0]) * (d[1] - a[1]) + (a[1] - b[1]) * (a[0] - d[0])
+    td1 = (c[0] - d[0]) * (a[1] - c[1]) + (c[1] - d[1]) * (c[0] - a[0])
+    td2 = (c[0] - d[0]) * (b[1] - c[1]) + (c[1] - d[1]) * (c[0] - b[0])
+    return tc1 * tc2 <= 0 and td1 * td2 <= 0
+
 def click(event):
     global figure
     global before_x, before_y
@@ -105,10 +127,10 @@ def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
 
     A_v = np.concatenate([a_normal, a_edge, a_handles, a_comp])
     b_v = np.concatenate([b_normal, b_edge, b_handles, b_comp])
-    inv = np.linalg.pinv(np.dot(A_v.T, A_v))
-    Atb = np.dot(A_v.T, b_v)
-    X_v = np.dot(inv, Atb)
-    # X_v = np.linalg.solve(np.dot(A_v.T, A_v), np.dot(A_v.T, b_v))
+    # inv = np.linalg.pinv(np.dot(A_v.T, A_v))
+    # Atb = np.dot(A_v.T, b_v)
+    # X_v = np.dot(inv, Atb)
+    X_v = np.linalg.solve(np.dot(A_v.T, A_v), np.dot(A_v.T, b_v))
     pn = int(len(X_v) / 2)
     xs = X_v[:pn]
     ys = X_v[pn:]
@@ -152,11 +174,11 @@ def opt_l(vs, path_starts):
 
     A_l = np.concatenate([a_linearized, a_tangent])
     b_l = np.concatenate([b_linearized, b_tangent])
-    inv = np.linalg.pinv(np.dot(A_l.T, A_l))
-    Atb = np.dot(A_l.T, b_l)
-    X_l = np.dot(inv, Atb)
+    # inv = np.linalg.pinv(np.dot(A_l.T, A_l))
+    # Atb = np.dot(A_l.T, b_l)
+    # X_l = np.dot(inv, Atb)
 
-    # X_l = np.linalg.solve(np.dot(A_l.T, A_l), np.dot(A_l.T, b_l))
+    X_l = np.linalg.solve(np.dot(A_l.T, A_l), np.dot(A_l.T, b_l))
     return X_l
 
 def main():
@@ -195,10 +217,12 @@ def main():
             seg_vs = [[p.real, p.imag] for p in seg.poly()(tvals)][1:]
             path_vs += seg_vs
         vs.append(np.array(path_vs))
+
     # corner detection
-    cids = []
+    cids = [] # corner ids
+    sids = [] # straight ids
     for path_vs in vs:
-        path_cids = []
+        path_cids, path_sids = [], []
         for i, v in enumerate(path_vs):
             j = i - 1
             k = (i + 1) % len(path_vs)
@@ -207,35 +231,58 @@ def main():
             rad = get_rad(u, p)
             if rad > np.pi * 45 / 180:
                 path_cids.append(i)
+            elif rad < np.pi * 0.1 / 180:
+                path_sids.append(i)
         cids.append(path_cids)
+        sids.append(path_sids)
 
     # set initial data for optimization
     vs_0 = []
     path_starts = []
-    for i, path_vs in enumerate(vs):
-        path_starts.append(len(vs_0))
+    handles = []
+    sids = [] # straight ids
+    for path_vs in vs:
+        path_start = len(vs_0)
+        path_starts.append(path_start)
         vs_0 += list(path_vs)
+        # corner detection
+        for i, v in enumerate(path_vs):
+            j = i - 1
+            k = (i + 1) % len(path_vs)
+            u = v - path_vs[j]
+            p = path_vs[k] - v
+            rad = get_rad(u, p)
+            if rad > np.pi * 45 / 180:
+                handles.append(path_start + i)
+            elif rad < np.pi * 1 / 180:
+                sids.append(path_start + i)
+
     path_starts.append(len(vs_0))
     vs_0 = np.array(vs_0)
     bbox_vs = np.array([[min(vs_0[:, 0]), min(vs_0[:, 1])], [max(vs_0[:, 0]),min(vs_0[:, 1])], [max(vs_0[:, 0]), max(vs_0[:, 1])], [min(vs_0[:, 0]), max(vs_0[:, 1])]])
     vs_0 = np.concatenate([vs_0, bbox_vs])
     ls_0 = get_ls(vs_0, path_starts)
-    handles = []
-    for i, ids in enumerate(cids):
-        for id in ids:
-            handles.append(id + path_starts[i])
 
     n = len(vs_0)
     ls = ls_0
     
     # set E comp
+    
+    def path_id(tar, path_starts):
+        for i, s in enumerate(path_starts):
+            if tar - s >= 0:
+                result = i
+            else:
+                return result
+        
     tri = Delaunay(vs_0)
     d_edges = []
     for tri in tri.simplices:
         for i, start in enumerate(tri):
             end = tri[i - 1]
             if [start, end] not in d_edges and [end, start] not in d_edges:
-                d_edges.append([start, end])
+                if path_id(start, path_starts) != path_id(end, path_starts):
+                    d_edges.append([start, end])
     n_comp = len(d_edges)
     w_comp = np.sqrt(0.01 / n_comp)
     a_comp = np.array([np.zeros(2 * n) for _ in range(2 * n_comp)])
@@ -264,6 +311,27 @@ def main():
         for _ in range(5):
             vs = opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts)
             ls = opt_l(vs, path_starts)
+        # check self intersections
+        self_intersections = []
+        for i, start in enumerate(path_starts):
+            if start == path_starts[-1]:
+                end = len(vs)
+            else:
+                end = path_starts[i+1]
+            path_vs = vs[start:end]
+            for j, vj in enumerate(path_vs):
+                if j == 0:
+                    continue
+                a = vj
+                b = path_vs[j-1]
+                for k, vk in enumerate(path_vs):
+                    if j+1 < k:
+                        c = vk
+                        d = path_vs[k-1] 
+                        if is_cross(a, b, c, d):
+                            self_intersections.append([j, j-1, k, k-1])
+        if len(self_intersections) > 0:
+            print('self intersection detected', self_intersections)
         canvas.delete('all')
         draw(vs, handles)
 
@@ -280,11 +348,17 @@ def main():
     canvas.grid(row=0, column=0)
     draw(vs_0, handles)
 
+    # draw straight lines
+    r = 3
+    for i in sids:
+        v = vs_0[i]
+        canvas.create_oval(v[0] - r, v[1] - r, v[0] + r, v[1] + r, fill = 'blue', outline='', tag='handle')
+
     # draw Delaunay edges
-    # for de in d_edges:
-    #     sv = vs_0[de[0]]
-    #     ev = vs_0[de[1]]
-    #     canvas.create_line(sv[0], sv[1], ev[0], ev[1])
+    for de in d_edges:
+        sv = vs_0[de[0]]
+        ev = vs_0[de[1]]
+        canvas.create_line(sv[0], sv[1], ev[0], ev[1])
 
     # init button
     button1 = ttk.Button(

@@ -93,7 +93,7 @@ def get_rad(u, v):
     return np.arccos(np.clip(c, -1.0, 1.0))
 
 
-def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
+def opt_v(ls, vs_0, ls_0, straights, a_handles, b_handles, a_comp, b_comp, path_starts):
     l_avg = sum(ls) / len(ls)
     normals = get_normals(vs_0, path_starts)
     n = len(ls)
@@ -101,6 +101,8 @@ def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
     b_normal = np.zeros(n)
     a_edge = np.array([np.zeros(2 * n) for _ in range(2 * n)])
     b_edge = np.zeros(2 * n)
+    a_straight = np.array([np.zeros(2 * n) for _ in range(2 * n)])
+    b_straight = np.zeros(2 * n)
     for i in range(n):
         if i in path_starts:
             if i == path_starts[-1]:
@@ -109,13 +111,20 @@ def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
                 j = path_starts[path_starts.index(i)+1] - 1
         else:
             j = i - 1
+        k = i + 1
+        if k in path_starts:
+            k = path_starts[path_starts.index(k)-1]
         c = max([1, ls[i]/l_avg])
-
+        ws = np.sqrt(10000)
         # set x
         a_normal[i][i] = c * normals[i][0] / ls[i]
         a_normal[i][j] = -c * normals[i][0] / ls[i]
         a_edge[i][i] = c / ls[i]
         a_edge[i][j] = -c / ls[i]
+        if i in straights:
+            a_straight[i][i] = -ws / ls[i] - ws / ls[k]
+            a_straight[i][j] = ws / ls[i]
+            a_straight[i][k] = ws / ls[k]
         b_edge[i] = c / ls_0[i] * (vs_0[i][0] - vs_0[j][0])
 
         # set y
@@ -123,13 +132,14 @@ def opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts):
         a_normal[i][n + j] = -c * normals[i][1] / ls[i]
         a_edge[n + i][n + i] = c / ls[i]
         a_edge[n + i][n + j] = -c / ls[i]
+        if i in straights:
+            a_straight[n + i][n + i] = -ws / ls[i] - ws / ls[k]
+            a_straight[n + i][n + j] = ws / ls[i]
+            a_straight[n + i][n + k] = ws / ls[k]
         b_edge[n + i] = c / ls_0[i] * (vs_0[i][1] - vs_0[j][1])
 
-    A_v = np.concatenate([a_normal, a_edge, a_handles, a_comp])
-    b_v = np.concatenate([b_normal, b_edge, b_handles, b_comp])
-    # inv = np.linalg.pinv(np.dot(A_v.T, A_v))
-    # Atb = np.dot(A_v.T, b_v)
-    # X_v = np.dot(inv, Atb)
+    A_v = np.concatenate([a_normal, a_edge, a_straight, a_handles, a_comp])
+    b_v = np.concatenate([b_normal, b_edge, b_straight, b_handles, b_comp])
     X_v = np.linalg.solve(np.dot(A_v.T, A_v), np.dot(A_v.T, b_v))
     pn = int(len(X_v) / 2)
     xs = X_v[:pn]
@@ -174,10 +184,6 @@ def opt_l(vs, path_starts):
 
     A_l = np.concatenate([a_linearized, a_tangent])
     b_l = np.concatenate([b_linearized, b_tangent])
-    # inv = np.linalg.pinv(np.dot(A_l.T, A_l))
-    # Atb = np.dot(A_l.T, b_l)
-    # X_l = np.dot(inv, Atb)
-
     X_l = np.linalg.solve(np.dot(A_l.T, A_l), np.dot(A_l.T, b_l))
     return X_l
 
@@ -218,29 +224,11 @@ def main():
             path_vs += seg_vs
         vs.append(np.array(path_vs))
 
-    # corner detection
-    cids = [] # corner ids
-    sids = [] # straight ids
-    for path_vs in vs:
-        path_cids, path_sids = [], []
-        for i, v in enumerate(path_vs):
-            j = i - 1
-            k = (i + 1) % len(path_vs)
-            u = v - path_vs[j]
-            p = path_vs[k] - v
-            rad = get_rad(u, p)
-            if rad > np.pi * 45 / 180:
-                path_cids.append(i)
-            elif rad < np.pi * 0.1 / 180:
-                path_sids.append(i)
-        cids.append(path_cids)
-        sids.append(path_sids)
-
     # set initial data for optimization
     vs_0 = []
     path_starts = []
     handles = []
-    sids = [] # straight ids
+    straights = [] # straight ids
     for path_vs in vs:
         path_start = len(vs_0)
         path_starts.append(path_start)
@@ -255,7 +243,7 @@ def main():
             if rad > np.pi * 45 / 180:
                 handles.append(path_start + i)
             elif rad < np.pi * 1 / 180:
-                sids.append(path_start + i)
+                straights.append(path_start + i)
 
     path_starts.append(len(vs_0))
     vs_0 = np.array(vs_0)
@@ -298,7 +286,7 @@ def main():
         b_comp[i] = w_comp * (vs_0[de[0]][0] - vs_0[de[1]][0]) / l
         b_comp[i + n_comp] = w_comp * (vs_0[de[0]][1] - vs_0[de[1]][1]) / l
     
-    def update(ls, vs_0, ls_0, handles, a_comp, b_comp, path_starts):
+    def update(ls, vs_0, ls_0, straights, handles, a_comp, b_comp, path_starts):
         ids = canvas.find_withtag('handle')
         vs_h = [[(canvas.coords(i)[0] + canvas.coords(i)[2]) / 2, (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2 ] for i in ids]
         wc = np.sqrt(100000)
@@ -309,7 +297,7 @@ def main():
             b_handles[id] = wc * vs_h[i][0]
             b_handles[n+id] = wc * vs_h[i][1]
         for _ in range(5):
-            vs = opt_v(ls, vs_0, ls_0, a_handles, b_handles, a_comp, b_comp, path_starts)
+            vs = opt_v(ls, vs_0, ls_0, straights, a_handles, b_handles, a_comp, b_comp, path_starts)
             ls = opt_l(vs, path_starts)
         # check self intersections
         self_intersections = []
@@ -330,8 +318,8 @@ def main():
                         d = path_vs[k-1] 
                         if is_cross(a, b, c, d):
                             self_intersections.append([j, j-1, k, k-1])
-        if len(self_intersections) > 0:
-            print('self intersection detected', self_intersections)
+        # if len(self_intersections) > 0:
+        #     print('self intersection detected', self_intersections)
         canvas.delete('all')
         draw(vs, handles)
 
@@ -350,7 +338,7 @@ def main():
 
     # draw straight lines
     r = 3
-    for i in sids:
+    for i in straights:
         v = vs_0[i]
         canvas.create_oval(v[0] - r, v[1] - r, v[0] + r, v[1] + r, fill = 'blue', outline='', tag='handle')
 
@@ -364,7 +352,7 @@ def main():
     button1 = ttk.Button(
         root,
         text='UPDATE',
-        command=lambda:update(ls, vs_0, ls_0, handles, a_comp, b_comp, path_starts))
+        command=lambda:update(ls, vs_0, ls_0, straights, handles, a_comp, b_comp, path_starts))
     button1.grid(row=1, column=0)
     root.mainloop()
 
